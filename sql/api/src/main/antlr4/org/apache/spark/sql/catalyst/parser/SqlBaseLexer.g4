@@ -245,6 +245,7 @@ FILTER: 'FILTER';
 FILEFORMAT: 'FILEFORMAT';
 FIRST: 'FIRST';
 FLOAT: 'FLOAT';
+FLOW: 'FLOW';
 FOLLOWING: 'FOLLOWING';
 FOR: 'FOR';
 FOREIGN: 'FOREIGN';
@@ -318,6 +319,7 @@ LOOP: 'LOOP';
 MACRO: 'MACRO';
 MAP: 'MAP' {incComplexTypeLevelCounter();};
 MATCHED: 'MATCHED';
+MATERIALIZED: 'MATERIALIZED';
 MAX: 'MAX';
 MERGE: 'MERGE';
 MICROSECOND: 'MICROSECOND';
@@ -436,6 +438,8 @@ START: 'START';
 STATISTICS: 'STATISTICS';
 STORED: 'STORED';
 STRATIFY: 'STRATIFY';
+STREAM: 'STREAM';
+STREAMING: 'STREAMING';
 STRING: 'STRING';
 STRUCT: 'STRUCT' {incComplexTypeLevelCounter();};
 SUBSTR: 'SUBSTR';
@@ -503,6 +507,7 @@ WHILE: 'WHILE';
 WINDOW: 'WINDOW';
 WITH: 'WITH';
 WITHIN: 'WITHIN';
+WITHOUT: 'WITHOUT';
 YEAR: 'YEAR';
 YEARS: 'YEARS';
 ZONE: 'ZONE';
@@ -543,13 +548,13 @@ HENT_END: '*/';
 QUESTION: '?';
 
 STRING_LITERAL
-    : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''
+    : '\'' ( ~('\''|'\\') | ('\\' .) | ('\'' '\'') )* '\''
     | 'R\'' (~'\'')* '\''
     | 'R"'(~'"')* '"'
     ;
 
 DOUBLEQUOTED_STRING
-    :'"' ( ~('"'|'\\') | ('\\' .) )* '"'
+    :'"' ( ~('"'|'\\') | '""' | ('\\' .) )* '"'
     ;
 
 // NOTE: If you move a numeric literal, you should modify `ParserUtils.toExprAlias()`

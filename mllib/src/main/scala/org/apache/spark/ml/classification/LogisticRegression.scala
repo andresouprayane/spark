@@ -191,8 +191,10 @@ private[classification] trait LogisticRegressionParams extends ProbabilisticClas
    * @group expertParam
    */
   @Since("2.2.0")
-  val lowerBoundsOnCoefficients: Param[Matrix] = new Param(this, "lowerBoundsOnCoefficients",
-    "The lower bounds on coefficients if fitting under bound constrained optimization.")
+  val lowerBoundsOnCoefficients: Param[Matrix] = new Param(this.uid, "lowerBoundsOnCoefficients",
+    "The lower bounds on coefficients if fitting under bound constrained optimization.",
+    classOf[Matrix]
+  )
 
   /** @group expertGetParam */
   @Since("2.2.0")
@@ -208,8 +210,10 @@ private[classification] trait LogisticRegressionParams extends ProbabilisticClas
    * @group expertParam
    */
   @Since("2.2.0")
-  val upperBoundsOnCoefficients: Param[Matrix] = new Param(this, "upperBoundsOnCoefficients",
-    "The upper bounds on coefficients if fitting under bound constrained optimization.")
+  val upperBoundsOnCoefficients: Param[Matrix] = new Param(this.uid, "upperBoundsOnCoefficients",
+    "The upper bounds on coefficients if fitting under bound constrained optimization.",
+    classOf[Matrix]
+  )
 
   /** @group expertGetParam */
   @Since("2.2.0")
@@ -224,8 +228,10 @@ private[classification] trait LogisticRegressionParams extends ProbabilisticClas
    * @group expertParam
    */
   @Since("2.2.0")
-  val lowerBoundsOnIntercepts: Param[Vector] = new Param(this, "lowerBoundsOnIntercepts",
-    "The lower bounds on intercepts if fitting under bound constrained optimization.")
+  val lowerBoundsOnIntercepts: Param[Vector] = new Param(this.uid, "lowerBoundsOnIntercepts",
+    "The lower bounds on intercepts if fitting under bound constrained optimization.",
+    classOf[Vector]
+  )
 
   /** @group expertGetParam */
   @Since("2.2.0")
@@ -240,8 +246,10 @@ private[classification] trait LogisticRegressionParams extends ProbabilisticClas
    * @group expertParam
    */
   @Since("2.2.0")
-  val upperBoundsOnIntercepts: Param[Vector] = new Param(this, "upperBoundsOnIntercepts",
-    "The upper bounds on intercepts if fitting under bound constrained optimization.")
+  val upperBoundsOnIntercepts: Param[Vector] = new Param(this.uid, "upperBoundsOnIntercepts",
+    "The upper bounds on intercepts if fitting under bound constrained optimization.",
+    classOf[Vector]
+  )
 
   /** @group expertGetParam */
   @Since("2.2.0")
@@ -710,29 +718,8 @@ class LogisticRegression @Since("1.2.0") (
       objectiveHistory: Array[Double]): LogisticRegressionModel = {
     val model = copyValues(new LogisticRegressionModel(uid, coefficientMatrix, interceptVector,
       numClasses, checkMultinomial(numClasses)))
-    val weightColName = if (!isDefined(weightCol)) "weightCol" else $(weightCol)
-
-    val (summaryModel, probabilityColName, predictionColName) = model.findSummaryModel()
-    val logRegSummary = if (numClasses <= 2) {
-      new BinaryLogisticRegressionTrainingSummaryImpl(
-        summaryModel.transform(dataset),
-        probabilityColName,
-        predictionColName,
-        $(labelCol),
-        $(featuresCol),
-        weightColName,
-        objectiveHistory)
-    } else {
-      new LogisticRegressionTrainingSummaryImpl(
-        summaryModel.transform(dataset),
-        probabilityColName,
-        predictionColName,
-        $(labelCol),
-        $(featuresCol),
-        weightColName,
-        objectiveHistory)
-    }
-    model.setSummary(Some(logRegSummary))
+    model.createSummary(dataset, objectiveHistory)
+    model
   }
 
   private def createBounds(
@@ -1314,6 +1301,54 @@ class LogisticRegressionModel private[spark] (
 
   override def toString: String = {
     s"LogisticRegressionModel: uid=$uid, numClasses=$numClasses, numFeatures=$numFeatures"
+  }
+
+  private[spark] def createSummary(
+    dataset: Dataset[_], objectiveHistory: Array[Double]
+  ): Unit = {
+    val weightColName = if (!isDefined(weightCol)) "weightCol" else $(weightCol)
+
+    val (summaryModel, probabilityColName, predictionColName) = findSummaryModel()
+    val logRegSummary = if (numClasses <= 2) {
+      new BinaryLogisticRegressionTrainingSummaryImpl(
+        summaryModel.transform(dataset),
+        probabilityColName,
+        predictionColName,
+        $(labelCol),
+        $(featuresCol),
+        weightColName,
+        objectiveHistory)
+    } else {
+      new LogisticRegressionTrainingSummaryImpl(
+        summaryModel.transform(dataset),
+        probabilityColName,
+        predictionColName,
+        $(labelCol),
+        $(featuresCol),
+        weightColName,
+        objectiveHistory)
+    }
+    setSummary(Some(logRegSummary))
+  }
+
+  override private[spark] def saveSummary(path: String): Unit = {
+    ReadWriteUtils.saveObjectToLocal[Tuple1[Array[Double]]](
+      path, Tuple1(summary.objectiveHistory),
+      (data, dos) => {
+        ReadWriteUtils.serializeDoubleArray(data._1, dos)
+      }
+    )
+  }
+
+  override private[spark] def loadSummary(path: String, dataset: DataFrame): Unit = {
+    val Tuple1(objectiveHistory: Array[Double])
+    = ReadWriteUtils.loadObjectFromLocal[Tuple1[Array[Double]]](
+      path,
+      dis => {
+        Tuple1(ReadWriteUtils.deserializeDoubleArray(dis))
+      }
+    )
+    createSummary(dataset, objectiveHistory)
   }
 }
 

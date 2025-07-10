@@ -36,20 +36,22 @@ import org.apache.spark.sql.catalyst.analysis.FunctionRegistry.FUNC_ALIAS
 import org.apache.spark.sql.catalyst.catalog.{BucketSpec, CatalogStorageFormat, ClusterBySpec}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AnyValue, First, Last}
+import org.apache.spark.sql.catalyst.expressions.json.JsonPathParser
+import org.apache.spark.sql.catalyst.expressions.json.PathInstruction.Named
 import org.apache.spark.sql.catalyst.parser.SqlBaseParser._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.trees.{CurrentOrigin, Origin}
 import org.apache.spark.sql.catalyst.trees.TreePattern.PARAMETER
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
-import org.apache.spark.sql.catalyst.util.{CharVarcharUtils, CollationFactory, DateTimeUtils, IntervalUtils, SparkParserUtils}
+import org.apache.spark.sql.catalyst.util.{CharVarcharUtils, CollationFactory, DateTimeUtils, IntervalUtils}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils.{convertSpecialDate, convertSpecialTimestamp, convertSpecialTimestampNTZ, getZoneId, stringToDate, stringToTime, stringToTimestamp, stringToTimestampWithoutTimeZone}
 import org.apache.spark.sql.connector.catalog.{CatalogV2Util, SupportsNamespaces, TableCatalog, TableWritePrivilege}
 import org.apache.spark.sql.connector.catalog.TableChange.ColumnPosition
 import org.apache.spark.sql.connector.expressions.{ApplyTransform, BucketTransform, DaysTransform, Expression => V2Expression, FieldReference, HoursTransform, IdentityTransform, LiteralValue, MonthsTransform, Transform, YearsTransform}
 import org.apache.spark.sql.errors.{DataTypeErrorsBase, QueryCompilationErrors, QueryParsingErrors, SqlScriptingErrors}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.internal.SQLConf.LEGACY_BANG_EQUALS_NOT
+import org.apache.spark.sql.internal.SQLConf.{LEGACY_BANG_EQUALS_NOT, LEGACY_CONSECUTIVE_STRING_LITERALS}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
@@ -128,7 +130,7 @@ class AstBuilder extends DataTypeAstBuilder
    * @return The original input text, including all whitespaces and formatting.
    */
   private def getOriginalText(ctx: ParserRuleContext): String = {
-    SparkParserUtils.source(ctx)
+    source(ctx)
   }
 
   /**
@@ -862,7 +864,7 @@ class AstBuilder extends DataTypeAstBuilder
    * }}}
    * operation to logical plan
    */
-  private def withInsertInto(
+  protected def withInsertInto(
       ctx: InsertIntoContext,
       query: LogicalPlan): LogicalPlan = withOrigin(ctx) {
     ctx match {
@@ -878,7 +880,8 @@ class AstBuilder extends DataTypeAstBuilder
               ctx = insertParams.relationCtx,
               ident = ident,
               optionsClause = insertParams.options,
-              writePrivileges = Seq(TableWritePrivilege.INSERT)),
+              writePrivileges = Seq(TableWritePrivilege.INSERT),
+              isStreaming = false),
             partitionSpec = insertParams.partitionSpec,
             userSpecifiedCols = insertParams.userSpecifiedCols,
             query = otherPlans.head,
@@ -894,7 +897,8 @@ class AstBuilder extends DataTypeAstBuilder
               ctx = insertParams.relationCtx,
               ident = ident,
               optionsClause = insertParams.options,
-              writePrivileges = Seq(TableWritePrivilege.INSERT, TableWritePrivilege.DELETE)),
+              writePrivileges = Seq(TableWritePrivilege.INSERT, TableWritePrivilege.DELETE),
+              isStreaming = false),
             partitionSpec = insertParams.partitionSpec,
             userSpecifiedCols = insertParams.userSpecifiedCols,
             query = otherPlans.head,
@@ -907,7 +911,7 @@ class AstBuilder extends DataTypeAstBuilder
         withIdentClause(ctx.identifierReference, Seq(query), (ident, otherPlans) => {
           OverwriteByExpression.byPosition(
             createUnresolvedRelation(ctx.identifierReference, ident, options,
-              Seq(TableWritePrivilege.INSERT, TableWritePrivilege.DELETE)),
+              Seq(TableWritePrivilege.INSERT, TableWritePrivilege.DELETE), isStreaming = false),
             otherPlans.head,
             expression(ctx.whereClause().booleanExpression()))
         })
@@ -1821,7 +1825,7 @@ class AstBuilder extends DataTypeAstBuilder
             // syntax error here accordingly.
             val error: String = (if (n.name != null) n.name else n.identifierList).getText
             throw new ParseException(
-              command = Some(SparkParserUtils.command(n)),
+              command = Some(command(n)),
               start = Origin(),
               errorClass = "PARSE_SYNTAX_ERROR",
               messageParameters = Map(
@@ -2383,6 +2387,17 @@ class AstBuilder extends DataTypeAstBuilder
 
         tvfAliases.optionalMap(func.tableAlias.strictIdentifier)(aliasPlan)
       })
+  }
+
+  override def visitStreamTableName(ctx: StreamTableNameContext): LogicalPlan = {
+    val ident = visitMultipartIdentifier(ctx.multipartIdentifier)
+    val tableStreamingRelation = createUnresolvedRelation(
+      ctx = ctx,
+      ident = ident,
+      optionsClause = Option(ctx.optionsClause),
+      writePrivileges = Seq.empty,
+      isStreaming = true)
+    mayApplyAliasPlan(ctx.tableAlias, tableStreamingRelation)
   }
 
   /**
@@ -3310,6 +3325,24 @@ class AstBuilder extends DataTypeAstBuilder
   }
 
   /**
+   * Create a [[SemiStructuredExtract]] expression.
+   */
+  override def visitSemiStructuredExtract(
+      ctx: SemiStructuredExtractContext): Expression = withOrigin(ctx) {
+    val field = ctx.path.getText
+    // When `field` starts with a bracket, do not add a `.` as the bracket already implies nesting
+    // Also the bracket will imply case sensitive field extraction.
+    val path = if (field.startsWith("[")) "$" + field else s"$$.$field"
+    val parsedPath = JsonPathParser.parse(path)
+    if (parsedPath.isEmpty) {
+      throw new ParseException(errorClass = "PARSE_SYNTAX_ERROR", ctx = ctx)
+    }
+    val potentialAlias = parsedPath.get.collect { case Named(name) => name }.lastOption
+    val node = SemiStructuredExtract(expression(ctx.col), path)
+    potentialAlias.map { colName => Alias(node, colName)() }.getOrElse(node)
+  }
+
+  /**
    * Create an [[UnresolvedAttribute]] expression or a [[UnresolvedRegex]] if it is a regex
    * quoted in ``
    */
@@ -3609,6 +3642,8 @@ class AstBuilder extends DataTypeAstBuilder
   private def createString(ctx: StringLiteralContext): String = {
     if (conf.escapedStringLiterals) {
       ctx.stringLit.asScala.map(x => stringWithoutUnescape(visitStringLit(x))).mkString
+    } else if (conf.getConf(LEGACY_CONSECUTIVE_STRING_LITERALS)) {
+      ctx.stringLit.asScala.map(x => stringIgnoreQuoteQuote(visitStringLit(x))).mkString
     } else {
       ctx.stringLit.asScala.map(x => string(visitStringLit(x))).mkString
     }
@@ -3635,9 +3670,10 @@ class AstBuilder extends DataTypeAstBuilder
       ctx: ParserRuleContext,
       ident: Seq[String],
       optionsClause: Option[OptionsClauseContext],
-      writePrivileges: Seq[TableWritePrivilege]): UnresolvedRelation = withOrigin(ctx) {
+      writePrivileges: Seq[TableWritePrivilege],
+      isStreaming: Boolean): UnresolvedRelation = withOrigin(ctx) {
     val options = resolveOptions(optionsClause)
-    val relation = new UnresolvedRelation(ident, options, isStreaming = false)
+    val relation = new UnresolvedRelation(ident, options, isStreaming)
     relation.requireWritePrivileges(writePrivileges)
   }
 
@@ -4421,6 +4457,10 @@ class AstBuilder extends DataTypeAstBuilder
         throw QueryParsingErrors.cannotCleanReservedNamespacePropertyError(
           PROP_LOCATION, ctx, "please use the LOCATION clause to specify it")
       case (PROP_LOCATION, _) => false
+      case (PROP_COLLATION, _) if !legacyOn =>
+        throw QueryParsingErrors.cannotCleanReservedNamespacePropertyError(
+          PROP_COLLATION, ctx, "please use the DEFAULT COLLATION clause to specify it")
+      case (PROP_COLLATION, _) => false
       case (PROP_OWNER, _) if !legacyOn =>
         throw QueryParsingErrors.cannotCleanReservedNamespacePropertyError(
           PROP_OWNER, ctx, "it will be set to the current user")
@@ -4446,6 +4486,7 @@ class AstBuilder extends DataTypeAstBuilder
   override def visitCreateNamespace(ctx: CreateNamespaceContext): LogicalPlan = withOrigin(ctx) {
     import SupportsNamespaces._
     checkDuplicateClauses(ctx.commentSpec(), "COMMENT", ctx)
+    checkDuplicateClauses(ctx.collationSpec(), "DEFAULT COLLATION", ctx)
     checkDuplicateClauses(ctx.locationSpec, "LOCATION", ctx)
     checkDuplicateClauses(ctx.PROPERTIES, "WITH PROPERTIES", ctx)
     checkDuplicateClauses(ctx.DBPROPERTIES, "WITH DBPROPERTIES", ctx)
@@ -4462,6 +4503,14 @@ class AstBuilder extends DataTypeAstBuilder
 
     visitCommentSpecList(ctx.commentSpec()).foreach {
       properties += PROP_COMMENT -> _
+    }
+
+    // Schema-level default collation is under development and currently not enabled.
+    if (!SQLConf.get.schemaLevelCollationsEnabled && !ctx.collationSpec().isEmpty) {
+      throw QueryCompilationErrors.schemaLevelCollationsNotEnabledError()
+    }
+    visitCollationSpecList(ctx.collationSpec()).foreach {
+      properties += PROP_COLLATION -> _
     }
 
     visitLocationSpecList(ctx.locationSpec()).foreach {
@@ -4791,7 +4840,7 @@ class AstBuilder extends DataTypeAstBuilder
     (fileFormatSerdeInfo ++ rowFormatSerdeInfo).reduceLeftOption((l, r) => l.merge(r))
   }
 
-  private def partitionExpressions(
+  protected[sql] def partitionExpressions(
       partTransforms: Seq[Transform],
       partCols: Seq[ColumnDefinition],
       ctx: ParserRuleContext): Seq[Transform] = {
@@ -5252,20 +5301,17 @@ class AstBuilder extends DataTypeAstBuilder
       } else {
         None
       }
-      val setDefaultExpression: Option[String] =
-        if (action.defaultExpression != null) {
-          Option(action.defaultExpression()).map(visitDefaultExpression).map(_.originalSQL)
-        } else if (action.dropDefault != null) {
-          Some("")
-        } else {
-          None
-        }
+      val setDefaultExpression: Option[DefaultValueExpression] =
+        Option(action.defaultExpression()).map(visitDefaultExpression)
+
       if (setDefaultExpression.isDefined && !conf.getConf(SQLConf.ENABLE_DEFAULT_COLUMNS)) {
         throw QueryParsingErrors.defaultColumnNotEnabledError(ctx)
       }
 
+      val dropDefault = action.dropDefault != null
+
       assert(Seq(dataType, nullable, comment, position, setDefaultExpression)
-        .count(_.nonEmpty) == 1)
+        .count(_.nonEmpty) == 1 || dropDefault)
 
       AlterColumnSpec(
         UnresolvedFieldName(typedVisit[Seq[String]](spec.column)),
@@ -5273,7 +5319,8 @@ class AstBuilder extends DataTypeAstBuilder
         nullable,
         comment,
         position,
-        setDefaultExpression)
+        setDefaultExpression,
+        dropDefault)
     }
     AlterColumns(
       createUnresolvedTable(ctx.table, s"ALTER TABLE ... $verb COLUMN"),
@@ -5781,7 +5828,12 @@ class AstBuilder extends DataTypeAstBuilder
         CacheTableAsSelect(ident.head, children.head, source(ctx.query()), isLazy, options)
       } else {
         CacheTable(
-          createUnresolvedRelation(ctx.identifierReference, ident, None, writePrivileges = Nil),
+          createUnresolvedRelation(
+            ctx.identifierReference,
+            ident,
+            None,
+            writePrivileges = Nil,
+            isStreaming = false),
           ident, isLazy, options)
       }
     })
