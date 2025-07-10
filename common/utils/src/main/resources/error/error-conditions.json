@@ -4060,6 +4060,12 @@
     ],
     "sqlState" : "42P20"
   },
+  "MOD_BY_ZERO" : {
+    "message" : [
+      "Division by zero. Use `try_mod` to tolerate divisor being 0 and return NULL instead. If necessary set <config> to \"false\" to bypass this error."
+    ],
+    "sqlState" : "22012"
+  },  
   "MULTIPLE_PRIMARY_KEYS" : {
     "message" : [
       "Multiple primary keys are defined: <columns>. Please ensure that only one primary key is defined for the table."

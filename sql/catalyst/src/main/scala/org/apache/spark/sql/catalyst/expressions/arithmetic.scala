@@ -645,7 +645,7 @@ trait DivModLike extends BinaryArithmetic {
       } else {
         if (isZero(input2)) {
           // when we reach here, failOnError must be true.
-          throw QueryExecutionErrors.divideByZeroError(getContextOrNull())
+          throw QueryExecutionErrors.modByZeroError(getContextOrNull())
         }
         if (checkDivideOverflow && input1 == Long.MinValue && input2 == -1) {
           throw QueryExecutionErrors.overflowInIntegralDivideError(getContextOrNull())
