@@ -593,6 +593,11 @@ abstract class IntegralToTimestampBase extends UnaryExpression
 // scalastyle:on line.size.limit
 case class SecondsToTimestamp(child: Expression) extends UnaryExpression
   with ExpectsInputTypes {
+
+  // scalastyle:off println
+  println("ase_test SecondsToTimestamp  class entry")
+  // scalastyle:on println
+
   override def nullIntolerant: Boolean = true
 
   override def inputTypes: Seq[AbstractDataType] = Seq(NumericType)
@@ -682,6 +687,10 @@ case class MillisToTimestamp(child: Expression)
 // scalastyle:on line.size.limit
 case class MicrosToTimestamp(child: Expression)
   extends IntegralToTimestampBase {
+
+  // scalastyle:off println
+  println("ase_test MicrosToTimestamp  class entry")
+  // scalastyle:on println
 
   override def upScaleFactor: Long = 1L
 
@@ -1134,6 +1143,11 @@ case class GetTimestamp(
     timeZoneId: Option[String] = None,
     failOnError: Boolean = SQLConf.get.ansiEnabled) extends ToTimestamp {
 
+
+  // scalastyle:off println
+  println("ase_test GetTimestamp  class entry")
+  // scalastyle:on println
+
   override val forTimestampNTZ: Boolean = dataType == TimestampNTZType
 
   override protected def downScaleFactor: Long = 1
@@ -1269,6 +1283,10 @@ object TryToTimestampExpressionBuilder extends ExpressionBuilder {
 abstract class ToTimestamp
   extends BinaryExpression with TimestampFormatterHelper with ExpectsInputTypes {
 
+  // scalastyle:off println
+  println("ase_test ToTimestamp class entry")
+  // scalastyle:on println
+
   val suggestedFuncOnFail: String = "try_to_timestamp"
   def failOnError: Boolean
 
@@ -1315,17 +1333,37 @@ abstract class ToTimestamp
           if (fmt == null) {
             null
           } else {
+
+            println("ase_test ToTimestamp formatter entry")
+
             val formatter = formatterOption.getOrElse(getFormatter(fmt.toString))
+
+            println(formatter)
+
             try {
               if (forTimestampNTZ) {
+                // scalastyle:off println
+                println("ase_test ToTimestamp formatter forTimestampNTZ entry")
+                // scalastyle:on println
                 formatter.parseWithoutTimeZone(t.asInstanceOf[UTF8String].toString)
               } else {
+                // scalastyle:off println
+                println("ase_test ToTimestamp formatter no forTimestampNTZ entry")
+                println(downScaleFactor)
+                println(t.asInstanceOf[UTF8String].toString)
+                // scalastyle:on println
+                // formatter.parseWithoutTimeZone(t.asInstanceOf[UTF8String].toString)
                 formatter.parse(t.asInstanceOf[UTF8String].toString) / downScaleFactor
+
+
+
               }
             } catch {
               case e: DateTimeException if failOnError =>
+                println(e)
                 throw QueryExecutionErrors.ansiDateTimeParseError(e, suggestedFuncOnFail)
               case e: ParseException if failOnError =>
+                println(e)
                 throw QueryExecutionErrors.ansiDateTimeParseError(e, suggestedFuncOnFail)
               case e if isParseError(e) => null
             }
@@ -1446,6 +1484,11 @@ case class FromUnixTime(sec: Expression, format: Expression, timeZoneId: Option[
   with TimestampFormatterHelper
   with ImplicitCastInputTypes
   with DefaultStringProducingExpression {
+
+  // scalastyle:off println
+  println("ase_test FromUnixTime  class entry")
+  // scalastyle:on println
+
   override def nullIntolerant: Boolean = true
 
   def this(sec: Expression, format: Expression) = this(sec, format, None)
@@ -2187,6 +2230,10 @@ case class ParseToTimestamp(
     timeZoneId: Option[String] = None,
     failOnError: Boolean = SQLConf.get.ansiEnabled)
   extends RuntimeReplaceable with ImplicitCastInputTypes with TimeZoneAwareExpression {
+
+  // scalastyle:off println
+  println("ase_test ParseToTimestamp class entry")
+  // scalastyle:on println
 
   override lazy val replacement: Expression = withOrigin(origin) {
     format.map { f =>

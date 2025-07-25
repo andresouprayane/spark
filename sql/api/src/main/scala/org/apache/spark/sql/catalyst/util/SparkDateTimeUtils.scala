@@ -134,6 +134,11 @@ trait SparkDateTimeUtils {
    * of microseconds where microsecond 0 is 1970-01-01 00:00:00Z.
    */
   def instantToMicros(instant: Instant): Long = {
+
+    // scalastyle:off println
+    println("ase_test SparkDateTimeUtils instantToMicros def entry")
+    // scalastyle:on println
+
     val secs = instant.getEpochSecond
     if (secs == MIN_SECONDS) {
       val us = Math.multiplyExact(secs + 1, MICROS_PER_SECOND)
@@ -205,6 +210,7 @@ trait SparkDateTimeUtils {
   }
 
   def localDateTimeToMicros(localDateTime: LocalDateTime): Long = {
+    println("ase_test SparkDateTimeUtils localDateTimeToMicros class entry")
     instantToMicros(localDateTime.toInstant(ZoneOffset.UTC))
   }
 

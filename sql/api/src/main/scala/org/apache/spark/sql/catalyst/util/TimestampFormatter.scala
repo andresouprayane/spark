@@ -61,6 +61,10 @@ sealed trait TimestampFormatter extends Serializable {
   @throws(classOf[DateTimeException])
   def parse(s: String): Long
 
+  // scalastyle:off println
+  println("ase_test TimestampFormatter  trait entry")
+  // scalastyle:on println
+
   /**
    * Parses a timestamp in a string and converts it to an optional number of microseconds.
    *
@@ -186,6 +190,11 @@ class Iso8601TimestampFormatter(
     isParsing: Boolean)
     extends TimestampFormatter
     with DateTimeFormatterHelper {
+
+  // scalastyle:off println
+  println("ase_test Iso8601TimestampFormatter class entry")
+  // scalastyle:on println
+
   @transient
   protected lazy val formatter: DateTimeFormatter =
     getOrCreateFormatter(pattern, locale, isParsing)
@@ -212,6 +221,10 @@ class Iso8601TimestampFormatter(
   }
 
   private def extractMicros(parsed: TemporalAccessor): Long = {
+    // scalastyle:off println
+    println("ase_test Iso8601TimestampFormatter def extractMicros entry")
+    // scalastyle:on println
+
     val parsedZoneId = parsed.query(TemporalQueries.zone())
     val timeZoneId = if (parsedZoneId == null) zoneId else parsedZoneId
     val zonedDateTime = toZonedDateTime(parsed, timeZoneId)
@@ -221,9 +234,16 @@ class Iso8601TimestampFormatter(
   }
 
   override def parse(s: String): Long = {
+
+    // scalastyle:off println
+    println("ase_test Iso8601TimestampFormatter def parse entry")
+    println(formatter)
+    // scalastyle:on println
     try {
       val parsed = formatter.parse(s)
+      // val parsed = formatter.parse("65789")
       extractMicros(parsed)
+      // 25656565 => ok
     } catch checkParsedDiff(s, legacyFormatter.parse)
   }
 
@@ -245,15 +265,27 @@ class Iso8601TimestampFormatter(
       s: String,
       parsed: TemporalAccessor,
       allowTimeZone: Boolean): Long = {
+
+    // scalastyle:off println
+    println("ase_test Iso8601TimestampFormatter extractMicrosNTZ class entry")
+    // scalastyle:on println
+
     if (!allowTimeZone && parsed.query(TemporalQueries.zone()) != null) {
       throw ExecutionErrors.cannotParseStringAsDataTypeError(pattern, s, TimestampNTZType)
     }
+
+
     val localDate = toLocalDate(parsed)
     val localTime = toLocalTime(parsed)
     SparkDateTimeUtils.localDateTimeToMicros(LocalDateTime.of(localDate, localTime))
   }
 
   override def parseWithoutTimeZone(s: String, allowTimeZone: Boolean): Long = {
+
+    // scalastyle:off println
+    println("ase_test Iso8601TimestampFormatter parseWithoutTimeZone entry")
+    // scalastyle:on println
+
     try {
       val parsed = formatter.parse(s)
       extractMicrosNTZ(s, parsed, allowTimeZone)
@@ -365,6 +397,11 @@ class FractionTimestampFormatter(zoneId: ZoneId)
       LegacyDateFormats.FAST_DATE_FORMAT,
       isParsing = false) {
 
+
+  // scalastyle:off println
+  println("ase_test FractionTimestampFormatter class entry")
+  // scalastyle:on println
+
   @transient
   override protected lazy val formatter = DateTimeFormatterHelper.fractionFormatter
 
@@ -416,6 +453,11 @@ class MicrosCalendar(tz: TimeZone, digitsInFraction: Int)
   // Converts parsed `MILLISECOND` field to seconds fraction in microsecond precision.
   // For example if the fraction pattern is `SSSS` then `digitsInFraction` = 4, and
   // if the `MILLISECOND` field was parsed to `1234`.
+
+  // scalastyle:off println
+  println("ase_test MicrosCalendar class entry")
+  // scalastyle:on println
+
   def getMicros(): Long = {
     // Append 6 zeros to the field: 1234 -> 1234000000
     val d = fields(Calendar.MILLISECOND) * MICROS_PER_SECOND
@@ -436,6 +478,12 @@ class MicrosCalendar(tz: TimeZone, digitsInFraction: Int)
 
 class LegacyFastTimestampFormatter(pattern: String, zoneId: ZoneId, locale: Locale)
     extends TimestampFormatter {
+
+
+  // scalastyle:off println
+  println("ase_test LegacyFastTimestampFormatter class entry")
+  // scalastyle:on println
+
 
   @transient private lazy val fastDateFormat =
     FastDateFormat.getInstance(pattern, TimeZone.getTimeZone(zoneId), locale)
@@ -466,6 +514,11 @@ class LegacyFastTimestampFormatter(pattern: String, zoneId: ZoneId, locale: Loca
   }
 
   private def extractMicros(cal: MicrosCalendar): Long = {
+
+    // scalastyle:off println
+    println("ase_test LegacyFastTimestampFormatter extractMicros class entry")
+    // scalastyle:on println
+
     val micros = cal.getMicros()
     cal.set(Calendar.MILLISECOND, 0)
     val julianMicros = Math.addExact(millisToMicros(cal.getTimeInMillis), micros)
@@ -488,6 +541,11 @@ class LegacyFastTimestampFormatter(pattern: String, zoneId: ZoneId, locale: Loca
   }
 
   override def format(instant: Instant): String = {
+
+  // scalastyle:off println
+  println("ase_test LegacyFastTimestampFormatter format def entry")
+  // scalastyle:on println
+
     format(instantToMicros(instant))
   }
 
@@ -500,6 +558,11 @@ class LegacySimpleTimestampFormatter(
     locale: Locale,
     lenient: Boolean = true)
     extends TimestampFormatter {
+
+  // scalastyle:off println
+  println("ase_test LegacySimpleTimestampFormatter class entry")
+  // scalastyle:on println
+
   @transient private lazy val sdf = {
     val formatter = new SimpleDateFormat(pattern, locale)
     formatter.setTimeZone(TimeZone.getTimeZone(zoneId))
@@ -529,6 +592,11 @@ class LegacySimpleTimestampFormatter(
   }
 
   override def format(instant: Instant): String = {
+
+  // scalastyle:off println
+  println("ase_test LegacySimpleTimestampFormatter instantToMicros def entry")
+  // scalastyle:on println
+
     format(instantToMicros(instant))
   }
 
@@ -542,6 +610,11 @@ object LegacyDateFormats extends Enumeration {
 
 object TimestampFormatter {
   import LegacyDateFormats._
+
+    // scalastyle:off println
+    println("ase_test TimestampFormatter class entry")
+    // scalastyle:on println
+
 
   val defaultLocale: Locale = Locale.US
 
